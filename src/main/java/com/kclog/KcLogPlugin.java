@@ -16,18 +16,25 @@ import net.runelite.api.ChatMessageType;
 import net.runelite.api.Client;
 import net.runelite.api.GameState;
 import net.runelite.api.NPC;
+import net.runelite.api.Actor;
+import net.runelite.api.Player;
+import net.runelite.api.events.ActorDeath;
 import net.runelite.api.events.GameStateChanged;
+import net.runelite.api.events.GameTick;
+import net.runelite.api.events.HitsplatApplied;
+import net.runelite.api.events.InteractingChanged;
+import net.runelite.api.events.NpcDespawned;
+import okhttp3.OkHttpClient;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
-import net.runelite.client.events.NpcLootReceived;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.util.ImageUtil;
 
-@PluginDescriptor(name = "KC Log", description = "Tracks monster kill counts reported by RuneLite", tags = {"kc", "kill", "count", "today"})
+@PluginDescriptor(name = "KC Log", description = "Kill count log for every creature you fight, with wiki portraits", tags = {"kc", "kill", "count", "today"})
 public class KcLogPlugin extends Plugin
 {
 	@Inject private Client client;
@@ -36,6 +43,10 @@ public class KcLogPlugin extends Plugin
 	@Inject private ClientToolbar clientToolbar;
 	@Inject private KcLogConfig config;
 	@Inject private Gson gson;
+	@Inject private OkHttpClient okHttpClient;
+
+	private final EngagementTracker engagements = new EngagementTracker();
+	private PortraitService portraits;
 
 	private final KillStore store = new KillStore();
 	private KcLogPanel panel;
@@ -52,6 +63,7 @@ public class KcLogPlugin extends Plugin
 	@Override
 	protected void startUp()
 	{
+		portraits = new PortraitService(okHttpClient);
 		panel = new KcLogPanel(this);
 		BufferedImage icon = ImageUtil.loadImageResource(getClass(), "icon.png");
 		navButton = NavigationButton.builder().tooltip("KC Log").icon(icon).priority(7).panel(panel).build();
@@ -90,28 +102,89 @@ public class KcLogPlugin extends Plugin
 			navButton = null;
 		}
 		panel = null;
+		engagements.clear();
+	}
+
+	PortraitService portraits()
+	{
+		return portraits;
 	}
 
 	@Subscribe
 	public void onGameStateChanged(GameStateChanged e)
 	{
+		if (e.getGameState() == GameState.HOPPING || e.getGameState() == GameState.LOGIN_SCREEN)
+		{
+			engagements.clear();
+		}
 		if (e.getGameState() == GameState.LOGGED_IN)
 		{
 			load();
 		}
 	}
 
-	/** Records kills when RuneLite reports loot for an NPC. */
+	/** Any hitsplat you deal (including 0s) means you took part in the fight. */
 	@Subscribe
-	public void onNpcLootReceived(NpcLootReceived e)
+	public void onHitsplatApplied(HitsplatApplied e)
+	{
+		if (e.getActor() instanceof NPC && e.getHitsplat().isMine())
+		{
+			engagements.engage(((NPC) e.getActor()).getIndex(), client.getTickCount());
+		}
+	}
+
+	/** Clicking attack / targeting an NPC also counts as engaging it. */
+	@Subscribe
+	public void onInteractingChanged(InteractingChanged e)
+	{
+		if (e.getSource() == client.getLocalPlayer() && e.getTarget() instanceof NPC)
+		{
+			engagements.engage(((NPC) e.getTarget()).getIndex(), client.getTickCount());
+		}
+	}
+
+	@Subscribe
+	public void onGameTick(GameTick e)
+	{
+		int tick = client.getTickCount();
+		Player me = client.getLocalPlayer();
+		Actor target = me == null ? null : me.getInteracting();
+		if (target instanceof NPC)
+		{
+			engagements.engage(((NPC) target).getIndex(), tick);
+		}
+		engagements.expire(tick);
+	}
+
+	@Subscribe
+	public void onActorDeath(ActorDeath e)
+	{
+		if (e.getActor() instanceof NPC)
+		{
+			onNpcDied((NPC) e.getActor());
+		}
+	}
+
+	@Subscribe
+	public void onNpcDespawned(NpcDespawned e)
 	{
 		NPC npc = e.getNpc();
-		if (npc == null || npc.getName() == null)
+		if (npc.isDead())
+		{
+			onNpcDied(npc);
+		}
+		engagements.forget(npc.getIndex());
+	}
+
+	/** Counts every death of an NPC you fought, whether or not it drops loot. */
+	private void onNpcDied(NPC npc)
+	{
+		String name = npc.getName();
+		if (name == null || name.isEmpty() || "null".equals(name) || !engagements.onDeath(npc.getIndex(), client.getTickCount()))
 		{
 			return;
 		}
 
-		String name = npc.getName();
 		String date = LocalDate.now().toString();
 		lastDate = date;
 		store.record(name, date);

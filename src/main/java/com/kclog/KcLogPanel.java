@@ -75,7 +75,7 @@ class KcLogPanel extends PluginPanel
 
 		JPanel searchBar = new JPanel(new BorderLayout(8, 0));
 		searchBar.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		searchBar.setBorder(new EmptyBorder(8, 8, 8, 8));
+		searchBar.setBorder(new EmptyBorder(6, 8, 6, 8));
 		searchBar.add(new JLabel(new SearchIcon()), BorderLayout.WEST);
 		search.setFont(FontManager.getDefaultFont());
 		search.setBackground(ColorScheme.DARKER_GRAY_COLOR);
@@ -224,7 +224,7 @@ class KcLogPanel extends PluginPanel
 	{
 		JPanel row = new JPanel(new BorderLayout(7, 0));
 		row.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		row.setBorder(new EmptyBorder(8, 8, 8, 8));
+		row.setBorder(new EmptyBorder(6, 8, 6, 8));
 
 		JPanel words = new JPanel(new BorderLayout(4, 0));
 		words.setOpaque(false);
@@ -238,6 +238,16 @@ class KcLogPanel extends PluginPanel
 		countLabel.setBorder(new EmptyBorder(0, 6, 0, 0));
 		words.add(countLabel, BorderLayout.EAST);
 		row.add(words, BorderLayout.CENTER);
+
+		JLabel portrait = new JLabel(new PlaceholderIcon());
+		portrait.setPreferredSize(new Dimension(PortraitService.SIZE, PortraitService.SIZE));
+		portrait.setHorizontalAlignment(JLabel.CENTER);
+		row.add(portrait, BorderLayout.WEST);
+		PortraitService service = plugin.portraits();
+		if (service != null)
+		{
+			service.get(name, icon -> { portrait.setIcon(icon); portrait.repaint(); });
+		}
 
 		row.setToolTipText(name + " · " + numbers.format(count) + (count == 1 ? " kill" : " kills"));
 		JPopupMenu menu = new JPopupMenu();
@@ -253,9 +263,9 @@ class KcLogPanel extends PluginPanel
 		row.setComponentPopupMenu(menu);
 		inheritMenu(row);
 		row.setAlignmentX(LEFT_ALIGNMENT);
-		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 44));
-		row.setPreferredSize(new Dimension(190, 44));
-		row.setMinimumSize(new Dimension(0, 44));
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 46));
+		row.setPreferredSize(new Dimension(190, 46));
+		row.setMinimumSize(new Dimension(0, 46));
 		return row;
 	}
 
@@ -271,6 +281,29 @@ class KcLogPanel extends PluginPanel
 					inheritMenu((Container) component);
 				}
 			}
+		}
+	}
+
+	/** Shown until the wiki portrait arrives, or if none exists. */
+	private static final class PlaceholderIcon implements Icon
+	{
+		@Override public int getIconWidth() { return PortraitService.SIZE; }
+		@Override public int getIconHeight() { return PortraitService.SIZE; }
+
+		@Override
+		public void paintIcon(Component component, Graphics graphics, int x, int y)
+		{
+			Graphics2D g = (Graphics2D) graphics.create();
+			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+			g.setColor(ColorScheme.DARK_GRAY_COLOR);
+			g.fillOval(x + 2, y + 2, 24, 24);
+			g.setColor(ColorScheme.MEDIUM_GRAY_COLOR);
+			g.fillOval(x + 8, y + 7, 12, 11);
+			g.fillRect(x + 10, y + 16, 8, 5);
+			g.setColor(ColorScheme.DARK_GRAY_COLOR);
+			g.fillOval(x + 10, y + 11, 3, 3);
+			g.fillOval(x + 15, y + 11, 3, 3);
+			g.dispose();
 		}
 	}
 
